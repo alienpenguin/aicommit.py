@@ -5,7 +5,7 @@ import subprocess
 import os
 import sys
 import datetime
-import argparse # Added for command-line arguments
+import argparse
 from pathlib import Path
 
 # --- Import AI Libraries ---
@@ -14,8 +14,8 @@ try:
     from openai import OpenAI, OpenAIError
     OPENAI_AVAILABLE = True
 except ImportError:
-    print("Warning: The 'openai' library is not installed. OpenAI engine will not be available.")
-    print("To install: pip install openai")
+    # print("Warning: The 'openai' library is not installed. OpenAI engine will not be available.")
+    # print("To install: pip install openai")
     OPENAI_AVAILABLE = False
 
 try:
@@ -24,8 +24,8 @@ try:
     import google.generativeai as genai
     GEMINI_AVAILABLE = True
 except ImportError:
-    print("Warning: The 'google-generativeai' library is not installed. Gemini engine will not be available.")
-    print("To install: pip install google-generativeai")
+    # print("Warning: The 'google-generativeai' library is not installed. Gemini engine will not be available.")
+    # print("To install: pip install google-generativeai")
     GEMINI_AVAILABLE = False
 
 try:
@@ -34,13 +34,13 @@ try:
     from anthropic import Anthropic
     CLAUDE_AVAILABLE = True
 except ImportError:
-    print("Warning: The 'anthropic' library is not installed. Claude engine will not be available.")
-    print("To install: pip install anthropic")
+    # print("Warning: The 'anthropic' library is not installed. Claude engine will not be available.")
+    # print("To install: pip install anthropic")
     CLAUDE_AVAILABLE = False
 
 # --- Configuration ---
-# Default AI engine
-DEFAULT_ENGINE = "openai"
+# Default AI engine(s)
+DEFAULT_ENGINES = ["openai"]
 
 # OpenAI model to use (e.g., "gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo")
 OPENAI_MODEL = "gpt-4o-mini"
@@ -55,7 +55,7 @@ The format MUST be:
 
 [optional body explaining the 'what' and 'why' vs. 'how']
 
-[optional footer(s) for BREAKING CHANGE or referencing issues (this MUST be present ONLY if the branch name contains a numer like ISSUE-NNN), e.g., Closes #123]
+[optional footer(s) for BREAKING CHANGE or referencing issues (this MUST be present ONLY if the branch name contains a number like /story/ISSUE-456/fixing-code), e.g., Closes #123]
 
 Common types include: feat, fix, build, chore, ci, docs, style, refactor, perf, test.
 
@@ -83,7 +83,8 @@ Git patch:
 Output only the commit message.
 """
 
-CLAUDE_MODEL = "claude-3-opus-20240229" # Example model name
+
+CLAUDE_MODEL = "claude-3-5-haiku-20241022" # Example model name
 CLAUDE_PROMPT_TEMPLATE = """
 Please provide a Conventional Commit message for the following git patch.
 The message should adhere to the format: <type>[optional scope]: <description>\n\n[optional body]\n\n[optional footer(s)].
@@ -236,25 +237,24 @@ def get_claude_commit_message(patch):
         return None
 
     try:
-        # --- Add your Claude API call logic here ---
         # Example using anthropic:
-        # client = Anthropic(api_key=api_key)
-        # full_prompt = CLAUDE_PROMPT_TEMPLATE.format(patch)
-        # message = client.messages.create(
-        #     model=CLAUDE_MODEL,
-        #     max_tokens=200,
-        #     messages=[
-        #         {"role": "user", "content": full_prompt}
-        #     ]
-        # ).content[0].text.strip()
-        # return message
+        client = Anthropic(api_key=api_key)
+        full_prompt = CLAUDE_PROMPT_TEMPLATE.format(patch) # Using Claude's specific template
+        message = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=2000, # Increased max tokens slightly
+            messages=[
+               {"role": "user", "content": full_prompt}
+            ]
+        ).content[0].text.strip()
+        return message
         # --- End of Claude API call logic ---
 
-        print(f"Requesting commit message from Claude ({CLAUDE_MODEL})...")
-        # Placeholder response
-        # Replace this with your actual API call
-        print("INFO: Claude API call placeholder executed.")
-        return f"fix: Placeholder commit message from Claude\n\nDetails about the fix based on {patch[:50]}..." # Simulate a response
+        # print(f"Requesting commit message from Claude ({CLAUDE_MODEL})...")
+        # # Placeholder response
+        # # Replace this with your actual API call
+        # print("INFO: Claude API call placeholder executed.")
+        # return f"fix: Placeholder commit message from Claude\n\nDetails about the fix based on {patch[:50]}..." # Simulate a response
 
     except Exception as e:
         print(f"Error calling the Claude API: {e}")
@@ -284,23 +284,45 @@ def main():
     parser = argparse.ArgumentParser(description="Generate a Git commit message using an AI model.")
     parser.add_argument(
         '-a', '--ai-engine',
-        choices=['gemini', 'claude', 'openai'],
-        default=DEFAULT_ENGINE,
-        help=f"Choose the AI engine to use (default: {DEFAULT_ENGINE})"
+        type=str, # Accept string input
+        default=','.join(DEFAULT_ENGINES), # Default as comma-separated string
+        help=f"Choose one or more AI engines (comma-separated: gemini,claude,openai) (default: {','.join(DEFAULT_ENGINES)})"
     )
     args = parser.parse_args()
-    chosen_engine = args.ai_engine.lower()
 
-    # Check if the chosen engine is available
-    if chosen_engine == 'openai' and not OPENAI_AVAILABLE:
-        print("Error: OpenAI engine requested but library is not available. Exiting.")
-        sys.exit(1)
-    elif chosen_engine == 'gemini' and not GEMINI_AVAILABLE:
-        print("Error: Gemini engine requested but library is not available. Exiting.")
-        sys.exit(1)
-    elif chosen_engine == 'claude' and not CLAUDE_AVAILABLE:
-        print("Error: Claude engine requested but library is not available. Exiting.")
-        sys.exit(1)
+    # Split the comma-separated input into a list of engines
+    requested_engines = [e.strip().lower() for e in args.ai_engine.split(',')]
+
+    # Filter out invalid or unavailable engines
+    available_engines = {
+        'openai': OPENAI_AVAILABLE,
+        'gemini': GEMINI_AVAILABLE,
+        'claude': CLAUDE_AVAILABLE
+    }
+
+    engines_to_call = []
+    for engine in requested_engines:
+        if engine in available_engines:
+            if available_engines[engine]:
+                engines_to_call.append(engine)
+            else:
+                print(f"Warning: Requested engine '{engine}' is not available (library not installed). Skipping.")
+        else:
+            print(f"Warning: Unknown AI engine '{engine}'. Skipping.")
+
+    # If no valid engines were requested or available, use the default
+    if not engines_to_call:
+        print(f"No valid or available engines requested. Using default: {','.join(DEFAULT_ENGINES)}")
+        for engine in DEFAULT_ENGINES:
+             if engine in available_engines and available_engines[engine]:
+                  engines_to_call.append(engine)
+             else:
+                  print(f"Warning: Default engine '{engine}' is not available. Skipping.")
+
+    # Final check if any engines can be called
+    if not engines_to_call:
+         print("Error: No AI engines are available. Please install at least one library (openai, google-generativeai, or anthropic).")
+         sys.exit(1)
 
 
     print("Checking Git repository...")
@@ -321,29 +343,12 @@ def main():
         sys.exit(0)
     print("OK. Found staged changes.")
 
-    # Dictionary to store messages from different engines
+    # Dictionary to store messages from different engines {engine_name: message}
     generated_messages = {}
-    primary_message = None
-
-    # Determine which engines to call based on the chosen engine
-    engines_to_call = [chosen_engine]
-    if chosen_engine in ['gemini', 'claude']:
-        # Add the other two engines if gemini or claude is chosen
-        if 'openai' not in engines_to_call and OPENAI_AVAILABLE:
-             engines_to_call.append('openai')
-        if 'gemini' not in engines_to_call and GEMINI_AVAILABLE:
-             engines_to_call.append('gemini')
-        if 'claude' not in engines_to_call and CLAUDE_AVAILABLE:
-             engines_to_call.append('claude')
-        # Ensure the chosen engine is called first if it's not already
-        if engines_to_call[0] != chosen_engine:
-             engines_to_call.remove(chosen_engine)
-             engines_to_call.insert(0, chosen_engine)
-
 
     print(f"\nCalling AI engines: {', '.join(engines_to_call)}")
 
-    # Call the selected AI engines
+    # Call the selected AI engines and store results
     for engine in engines_to_call:
         message = None
         if engine == 'openai':
@@ -355,67 +360,60 @@ def main():
 
         if message:
             generated_messages[engine] = message
-            if engine == chosen_engine:
-                primary_message = message # Store the message from the primary engine
 
     if not generated_messages:
         print("\nCould not generate commit message from any available engine. Aborting.")
         sys.exit(1)
 
-    # Display generated messages
+    # Display generated messages with numbers
     print("\n" + "="*20 + " Suggested Commit Messages " + "="*20)
-    for engine, message in generated_messages.items():
-        print(f"\n--- Message from {engine.capitalize()} ---")
+    message_options = list(generated_messages.items()) # List of (engine, message) tuples
+    for i, (engine, message) in enumerate(message_options):
+        print(f"\n--- Option {i+1}: Message from {engine.capitalize()} ---")
         print(message)
-        print("-" * (20 + len(f" Message from {engine.capitalize()} ") + 2))
+        print("-" * (len(f" Option {i+1}: Message from {engine.capitalize()} ") + 8)) # Adjust separator length
+
     print("=" * (42 + len(" Suggested Commit Messages ")) + "\n")
 
-    # Ask the user for confirmation with the new 'save' option
-    # The prompt refers to the message from the primarily chosen engine
-    if primary_message:
-        print(f"The primary message generated by {chosen_engine.capitalize()} is shown above.")
-        while True:
-            confirm = input(f"Use the {chosen_engine.capitalize()} message? (y/n/s[ave]): ").lower().strip()
-            if confirm == 'y':
-                # Proceed with commit using the primary message
-                commit_message_to_use = primary_message
-                break
-            elif confirm == 'n':
-                # Cancel commit
-                print("Commit cancelled by user.")
-                sys.exit(0)
-            elif confirm == 's':
-                # Save the primary message to a file and exit
-                if save_message_to_file(primary_message, chosen_engine):
-                    print(f"Exiting without committing. Primary message from {chosen_engine.capitalize()} saved.")
-                else:
-                    print("Exiting despite save error.")
-                sys.exit(0)
+    # Ask the user to select a message
+    selected_message_index = -1
+    while selected_message_index < 0 or selected_message_index >= len(message_options):
+        try:
+            selection_input = input(f"Enter the number of the message you want to use (1-{len(message_options)}): ").strip()
+            selected_message_index = int(selection_input) - 1 # Convert to 0-based index
+            if selected_message_index < 0 or selected_message_index >= len(message_options):
+                 print("Invalid number. Please enter a number within the range.")
+        except ValueError:
+            print("Invalid input. Please enter a number.")
+        except EOFError: # Handle Ctrl+D
+            print("\nInput cancelled. Exiting.")
+            sys.exit(0)
+
+
+    # Get the selected message and its engine name
+    selected_engine, commit_message_to_use = message_options[selected_message_index]
+
+    # Ask the user for confirmation (y/n/s) for the selected message
+    while True:
+        confirm = input(f"Use the selected message from {selected_engine.capitalize()}? (y/n/s[ave]): ").lower().strip()
+        if confirm == 'y':
+            # Proceed with commit using the selected message
+            break
+        elif confirm == 'n':
+            # Cancel commit
+            print("Commit cancelled by user.")
+            sys.exit(0)
+        elif confirm == 's':
+            # Save the selected message to a file and exit
+            if save_message_to_file(commit_message_to_use, selected_engine):
+                print(f"Exiting without committing. Selected message from {selected_engine.capitalize()} saved.")
             else:
-                print("Invalid input. Please enter 'y' (yes), 'n' (no), or 's' (save).")
-    else:
-        # This case should ideally not be reached if generated_messages is not empty
-        # but the primary_message was not set (e.g., if the chosen engine failed).
-        # In this scenario, we can't offer to commit a specific message easily.
-        print("Could not retrieve a message from the primary engine.")
-        # Offer to save all generated messages if any exist, or just exit.
-        if generated_messages:
-             print("Messages from other engines were generated.")
-             save_all = input("Save all generated messages? (y/n): ").lower().strip()
-             if save_all == 'y':
-                  for engine, msg in generated_messages.items():
-                       save_message_to_file(msg, engine)
-                  print("Exiting after saving messages.")
-                  sys.exit(0)
-             else:
-                  print("Exiting without saving.")
-                  sys.exit(0)
+                print("Exiting despite save error.")
+            sys.exit(0)
         else:
-             # Should have exited earlier if no messages were generated
-             sys.exit(1)
+            print("Invalid input. Please enter 'y' (yes), 'n' (no), or 's' (save).")
 
-
-    # Execute the commit (only reached if user entered 'y' for the primary message)
+    # Execute the commit (only reached if user entered 'y')
     print("\nExecuting git commit...")
     commit_result = run_git_command(['git', 'commit', '-m', commit_message_to_use])
 
