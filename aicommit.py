@@ -5,6 +5,7 @@ import subprocess
 import os
 import sys
 import datetime # Added for timestamping the saved message file
+from pathlib import Path # Added for handling home directory path
 
 try:
     # Attempt to import the OpenAI library
@@ -29,7 +30,7 @@ The format MUST be:
 
 [optional body explaining the 'what' and 'why' vs. 'how']
 
-[optional footer(s) for BREAKING CHANGE or referencing issues, e.g., Closes #123]
+[optional footer(s) for BREAKING CHANGE or referencing issues (this MUST be present ONLY if the branch name contains a numer like ISSUE-NNN), e.g., Closes #123]
 
 Common types include: feat, fix, build, chore, ci, docs, style, refactor, perf, test.
 
@@ -70,13 +71,42 @@ def get_staged_diff():
     """Retrieves changes in the staging area (git diff --cached)."""
     return run_git_command(['git', 'diff', '--cached'])
 
+def get_openai_api_key():
+    """Retrieves the OpenAI API key from environment variable or fallback file."""
+    # 1. Try environment variable first
+    api_key = os.getenv("OPENAI_API_KEY")
+    if api_key:
+        # print("DEBUG: Found API key in environment variable.") # Optional debug message
+        return api_key
+
+    # 2. If not found, try the fallback file
+    fallback_path = Path.home() / ".nr" / "aicommit" / "openai_api_key"
+    # print(f"DEBUG: Checking fallback path: {fallback_path}") # Optional debug message
+    if fallback_path.is_file():
+        try:
+            api_key = fallback_path.read_text(encoding='utf-8').strip()
+            if api_key:
+                 # print("DEBUG: Found API key in fallback file.") # Optional debug message
+                 return api_key
+            else:
+                 print(f"Warning: Fallback API key file found but is empty: {fallback_path}")
+        except IOError as e:
+            print(f"Warning: Could not read fallback API key file at {fallback_path}: {e}")
+        except Exception as e:
+             print(f"Warning: An unexpected error occurred reading fallback API key file: {e}")
+
+    # 3. If key is not found in either location
+    print("Error: OpenAI API key not found.")
+    print("Please set the OPENAI_API_KEY environment variable or")
+    print(f"place your key in the file: {fallback_path}")
+    return None
+
+
 def get_openai_commit_message(patch):
     """Calls the OpenAI API to generate the commit message."""
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = get_openai_api_key() # Use the new function to get the key
     if not api_key:
-        print("Error: The OPENAI_API_KEY environment variable is not set.")
-        print("Please set it before running the script.")
-        print("Example: export OPENAI_API_KEY='your_api_key'")
+        # Error message is already printed by get_openai_api_key()
         return None
 
     try:
@@ -152,6 +182,7 @@ def main():
         sys.exit(0)
     print("OK. Found staged changes.")
 
+    # This function now handles getting the API key from env var or file
     commit_message = get_openai_commit_message(patch)
 
     if not commit_message:
