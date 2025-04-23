@@ -4,6 +4,8 @@
 import subprocess
 import os
 import sys
+import datetime # Added for timestamping the saved message file
+
 try:
     # Attempt to import the OpenAI library
     from openai import OpenAI, OpenAIError
@@ -112,6 +114,23 @@ def get_openai_commit_message(patch):
         print(f"Unexpected error during OpenAI interaction: {e}")
         return None
 
+def save_message_to_file(message):
+    """Saves the commit message to a timestamped file."""
+    try:
+        now = datetime.datetime.now()
+        timestamp = now.strftime("%Y-%m-%d-%H-%M-%S") # Changed format slightly for better readability
+        filename = f"aicommit_msg_{timestamp}.txt"
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write(message)
+        print(f"Commit message saved to: {filename}")
+        return True
+    except IOError as e:
+        print(f"Error saving message to file {filename}: {e}")
+        return False
+    except Exception as e:
+        print(f"An unexpected error occurred while saving the file: {e}")
+        return False
+
 def main():
     """Main function of the script."""
     print("Checking Git repository...")
@@ -143,18 +162,30 @@ def main():
     print(commit_message)
     print("=" * (42 + len(" Suggested Commit Message ")) + "\n") # Matching closing line
 
-    # Ask the user for confirmation
+    # Ask the user for confirmation with the new 'save' option
     while True:
-        confirm = input("Do you want to use this message for the commit? (y/n): ").lower().strip()
+        # Updated prompt to include the 's' option
+        confirm = input("Use this message? (y/n/s[ave]): ").lower().strip()
         if confirm == 'y':
+            # Proceed with commit
             break
         elif confirm == 'n':
+            # Cancel commit
             print("Commit cancelled by user.")
             sys.exit(0)
+        elif confirm == 's':
+            # Save the message to a file and exit
+            if save_message_to_file(commit_message):
+                print("Exiting without committing.")
+            else:
+                # Inform user if saving failed, but still exit as requested
+                print("Exiting despite save error.")
+            sys.exit(0) # Exit after saving or attempting to save
         else:
-            print("Invalid input. Please enter 'y' for yes or 'n' for no.")
+            # Handle invalid input
+            print("Invalid input. Please enter 'y' (yes), 'n' (no), or 's' (save).")
 
-    # Execute the commit
+    # Execute the commit (only reached if user entered 'y')
     print("\nExecuting git commit...")
     # Use '-m' which allows passing the message directly.
     # Git handles multiline messages passed with -m correctly.
@@ -173,4 +204,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
