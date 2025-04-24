@@ -208,12 +208,12 @@ def get_gemini_commit_message(patch):
     try:
         # --- Add your Gemini API call logic here ---
         # Example using google-generativeai:
-        # genai.configure(api_key=api_key)
-        # model = genai.GenerativeModel(GEMINI_MODEL)
-        # full_prompt = GEMINI_PROMPT_TEMPLATE.format(patch)
-        # response = model.generate_content(full_prompt)
-        # message = response.text.strip()
-        # return message
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(GEMINI_MODEL)
+        full_prompt = GEMINI_PROMPT_TEMPLATE.format(patch)
+        response = model.generate_content(full_prompt)
+        message = response.text.strip()
+        return message
         # --- End of Gemini API call logic ---
 
         print(f"Requesting commit message from Gemini ({GEMINI_MODEL})...")
