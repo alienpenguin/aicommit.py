@@ -69,7 +69,7 @@ Generate ONLY the commit message itself, starting directly with the type. Do not
 
 # --- Placeholder Configurations for Other Engines ---
 # You will need to configure models and prompt templates for Gemini and Claude
-GEMINI_MODEL = "gemini-pro" # Example model name
+GEMINI_MODEL = "gemini-2.0-flash" # Example model name
 GEMINI_PROMPT_TEMPLATE = """
 Generate a Conventional Commit message based on the following git patch.
 Follow the format: <type>[optional scope]: <description>\n\n[optional body]\n\n[optional footer(s)]
@@ -206,7 +206,7 @@ def get_gemini_commit_message(patch):
         return None
 
     try:
-        # --- Add your Gemini API call logic here ---
+        print(f"Requesting commit message from Gemini ({GEMINI_MODEL})...")
         # Example using google-generativeai:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel(GEMINI_MODEL)
@@ -215,12 +215,6 @@ def get_gemini_commit_message(patch):
         message = response.text.strip()
         return message
         # --- End of Gemini API call logic ---
-
-        print(f"Requesting commit message from Gemini ({GEMINI_MODEL})...")
-        # Placeholder response
-        # Replace this with your actual API call
-        print("INFO: Gemini API call placeholder executed.")
-        return f"feat: Placeholder commit message from Gemini based on patch\n\n{patch[:50]}..." # Simulate a response
 
     except Exception as e:
         print(f"Error calling the Gemini API: {e}")
@@ -237,6 +231,7 @@ def get_claude_commit_message(patch):
         return None
 
     try:
+        print(f"Requesting commit message from Claude ({CLAUDE_MODEL})...")
         # Example using anthropic:
         client = Anthropic(api_key=api_key)
         full_prompt = CLAUDE_PROMPT_TEMPLATE.format(patch) # Using Claude's specific template
@@ -249,12 +244,6 @@ def get_claude_commit_message(patch):
         ).content[0].text.strip()
         return message
         # --- End of Claude API call logic ---
-
-        # print(f"Requesting commit message from Claude ({CLAUDE_MODEL})...")
-        # # Placeholder response
-        # # Replace this with your actual API call
-        # print("INFO: Claude API call placeholder executed.")
-        # return f"fix: Placeholder commit message from Claude\n\nDetails about the fix based on {patch[:50]}..." # Simulate a response
 
     except Exception as e:
         print(f"Error calling the Claude API: {e}")
@@ -375,19 +364,21 @@ def main():
 
     print("=" * (42 + len(" Suggested Commit Messages ")) + "\n")
 
-    # Ask the user to select a message
-    selected_message_index = -1
-    while selected_message_index < 0 or selected_message_index >= len(message_options):
-        try:
-            selection_input = input(f"Enter the number of the message you want to use (1-{len(message_options)}): ").strip()
-            selected_message_index = int(selection_input) - 1 # Convert to 0-based index
-            if selected_message_index < 0 or selected_message_index >= len(message_options):
-                 print("Invalid number. Please enter a number within the range.")
-        except ValueError:
-            print("Invalid input. Please enter a number.")
-        except EOFError: # Handle Ctrl+D
-            print("\nInput cancelled. Exiting.")
-            sys.exit(0)
+    selected_message_index = 0
+    if len(message_options) > 1:
+        # Ask the user to select a message
+        selected_message_index = -1
+        while selected_message_index < 0 or selected_message_index >= len(message_options):
+            try:
+                selection_input = input(f"Enter the number of the message you want to use (1-{len(message_options)}): ").strip()
+                selected_message_index = int(selection_input) - 1 # Convert to 0-based index
+                if selected_message_index < 0 or selected_message_index >= len(message_options):
+                     print("Invalid number. Please enter a number within the range.")
+            except ValueError:
+                print("Invalid input. Please enter a number.")
+            except EOFError: # Handle Ctrl+D
+                print("\nInput cancelled. Exiting.")
+                sys.exit(0)
 
 
     # Get the selected message and its engine name
