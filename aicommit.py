@@ -6,6 +6,7 @@ import os
 import sys
 import datetime
 import argparse
+import json # Added for handling JSON responses from Ollama
 from pathlib import Path
 
 # --- Import AI Libraries ---
@@ -37,6 +38,16 @@ except ImportError:
     # print("Warning: The 'anthropic' library is not installed. Claude engine will not be available.")
     # print("To install: pip install anthropic")
     CLAUDE_AVAILABLE = False
+
+try:
+    # Required for Ollama HTTP requests
+    import requests
+    OLLAMA_AVAILABLE = True
+except ImportError:
+    # print("Warning: The 'requests' library is not installed. Ollama engine will not be available.")
+    # print("To install: pip install requests")
+    OLLAMA_AVAILABLE = False
+
 
 # --- Configuration ---
 # Default AI engine(s)
@@ -97,6 +108,23 @@ Here is the git patch:
 ```
 Generate only the commit message content.
 """
+
+# Ollama Configuration
+OLLAMA_DEFAULT_HOST = "localhost"
+OLLAMA_DEFAULT_PORT = 11434
+OLLAMA_DEFAULT_MODEL = "llama3.2" # You might want to make this configurable too
+OLLAMA_PROMPT_TEMPLATE = """
+Generate a Conventional Commit message based on the following git patch.
+Follow the format: <type>[optional scope]: <description>\n\n[optional body]\n\n[optional footer(s)]
+Common types: feat, fix, build, chore, ci, docs, style, refactor, perf, test.
+Include a footer like 'Closes #NNN' if the branch name contains 'ISSUE-NNN'.
+
+Git patch:
+```diff
+{}
+```
+Output only the commit message.
+"""
 # --- End Configuration ---
 
 def run_git_command(command):
@@ -126,6 +154,10 @@ def get_staged_diff():
 
 def get_api_key(engine):
     """Retrieves the API key for the specified engine."""
+    # Ollama does not use API keys in this manner, so we handle it separately
+    if engine == 'ollama':
+        return True # Indicate that Ollama is configured via host/port
+
     env_var = f"{engine.upper()}_API_KEY"
     api_key = os.getenv(env_var)
     if api_key:
@@ -196,7 +228,7 @@ def get_openai_commit_message(patch):
         return None
 
 def get_gemini_commit_message(patch):
-    """Calls the Gemini API to generate the commit message (Placeholder)."""
+    """Calls the Gemini API to generate the commit message."""
     if not GEMINI_AVAILABLE:
         print("Gemini engine is not available.")
         return None
@@ -221,7 +253,7 @@ def get_gemini_commit_message(patch):
         return None
 
 def get_claude_commit_message(patch):
-    """Calls the Claude API to generate the commit message (Placeholder)."""
+    """Calls the Claude API to generate the commit message."""
     if not CLAUDE_AVAILABLE:
         print("Claude engine is not available.")
         return None
@@ -247,6 +279,56 @@ def get_claude_commit_message(patch):
 
     except Exception as e:
         print(f"Error calling the Claude API: {e}")
+        return None
+
+def get_ollama_commit_message(patch, host, port):
+    """Calls the Ollama API to generate the commit message."""
+    if not OLLAMA_AVAILABLE:
+        print("Ollama engine is not available (requires 'requests' library).")
+        return None
+
+    url = f"http://{host}:{port}/api/generate"
+    full_prompt = OLLAMA_PROMPT_TEMPLATE.format(patch)
+
+    data = {
+        "model": OLLAMA_DEFAULT_MODEL,
+        "prompt": full_prompt,
+        "stream": False # We want the full response at once
+    }
+
+    try:
+        print(f"Requesting commit message from Ollama ({OLLAMA_DEFAULT_MODEL}) at {url}...")
+        response = requests.post(url, json=data)
+        response.raise_for_status() # Raise an HTTPError for bad responses (4xx or 5xx)
+
+        result = response.json()
+        message = result.get("response", "").strip()
+
+        if message:
+            # Ollama might include the prompt in the response, try to clean it
+            if message.startswith(full_prompt):
+                message = message[len(full_prompt):].strip()
+            if message.startswith("```") and message.endswith("```"):
+                 message = message[3:-3].strip()
+            return message
+        else:
+            print("Error: Unexpected response from the Ollama API (empty response).")
+            print(result)
+            return None
+
+    except requests.exceptions.ConnectionError:
+        print(f"Error: Could not connect to Ollama server at {url}.")
+        print("Please ensure Ollama is running and the host/port are correct.")
+        return None
+    except requests.exceptions.RequestException as e:
+        print(f"Error calling the Ollama API: {e}")
+        return None
+    except json.JSONDecodeError:
+        print(f"Error: Could not decode JSON response from Ollama at {url}.")
+        print("Received response:", response.text)
+        return None
+    except Exception as e:
+        print(f"Unexpected error during Ollama interaction: {e}")
         return None
 
 
@@ -275,7 +357,19 @@ def main():
         '-a', '--ai-engine',
         type=str, # Accept string input
         default=','.join(DEFAULT_ENGINES), # Default as comma-separated string
-        help=f"Choose one or more AI engines (comma-separated: gemini,claude,openai) (default: {','.join(DEFAULT_ENGINES)})"
+        help=f"Choose one or more AI engines (comma-separated: gemini,claude,openai,ollama) (default: {','.join(DEFAULT_ENGINES)})"
+    )
+    parser.add_argument(
+        '-oh', '--ollama-host',
+        type=str,
+        default=OLLAMA_DEFAULT_HOST,
+        help=f"Specify the Ollama server host (default: {OLLAMA_DEFAULT_HOST})"
+    )
+    parser.add_argument(
+        '-op', '--ollama-port',
+        type=int,
+        default=OLLAMA_DEFAULT_PORT,
+        help=f"Specify the Ollama server port (default: {OLLAMA_DEFAULT_PORT})"
     )
     args = parser.parse_args()
 
@@ -286,7 +380,8 @@ def main():
     available_engines = {
         'openai': OPENAI_AVAILABLE,
         'gemini': GEMINI_AVAILABLE,
-        'claude': CLAUDE_AVAILABLE
+        'claude': CLAUDE_AVAILABLE,
+        'ollama': OLLAMA_AVAILABLE # Added Ollama
     }
 
     engines_to_call = []
@@ -310,7 +405,7 @@ def main():
 
     # Final check if any engines can be called
     if not engines_to_call:
-         print("Error: No AI engines are available. Please install at least one library (openai, google-generativeai, or anthropic).")
+         print("Error: No AI engines are available. Please install at least one library (openai, google-generativeai, anthropic, or requests).")
          sys.exit(1)
 
 
@@ -340,12 +435,20 @@ def main():
     # Call the selected AI engines and store results
     for engine in engines_to_call:
         message = None
-        if engine == 'openai':
-            message = get_openai_commit_message(patch)
-        elif engine == 'gemini':
-            message = get_gemini_commit_message(patch)
-        elif engine == 'claude':
-            message = get_claude_commit_message(patch)
+        # Check for API key or Ollama host/port before calling
+        if engine == 'ollama':
+            # Ollama doesn't use get_api_key in the same way, check requests availability
+            if OLLAMA_AVAILABLE:
+                 message = get_ollama_commit_message(patch, args.ollama_host, args.ollama_port)
+        else:
+            # For other engines, check for API key
+            if get_api_key(engine): # get_api_key prints error if not found
+                if engine == 'openai':
+                    message = get_openai_commit_message(patch)
+                elif engine == 'gemini':
+                    message = get_gemini_commit_message(patch)
+                elif engine == 'claude':
+                    message = get_claude_commit_message(patch)
 
         if message:
             generated_messages[engine] = message
