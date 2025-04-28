@@ -6,7 +6,7 @@ import os
 import sys
 import datetime
 import argparse
-import json # Added for handling JSON responses from Ollama
+import json
 from pathlib import Path
 
 # --- Import AI Libraries ---
@@ -20,7 +20,6 @@ except ImportError:
     OPENAI_AVAILABLE = False
 
 try:
-    # Assuming google-generativeai for Gemini. You might need a different library.
     # To install: pip install google-generativeai
     import google.generativeai as genai
     GEMINI_AVAILABLE = True
@@ -30,7 +29,6 @@ except ImportError:
     GEMINI_AVAILABLE = False
 
 try:
-    # Assuming anthropic for Claude. You might need a different library or direct HTTP.
     # To install: pip install anthropic
     from anthropic import Anthropic
     CLAUDE_AVAILABLE = True
@@ -56,7 +54,7 @@ DEFAULT_ENGINES = ["openai"]
 # OpenAI model to use (e.g., "gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo")
 OPENAI_MODEL = "gpt-4o-mini"
 # Prompt template for OpenAI
-OPENAI_PROMPT_TEMPLATE = """
+PROMPT_TEMPLATE = """
 You are a skilled developer specializing in writing excellent commit messages following the Conventional Commits standard (https://www.conventionalcommits.org/).
 
 Analyze the following git patch and generate an appropriate commit message.
@@ -78,53 +76,15 @@ Here is the git patch:
 Generate ONLY the commit message itself, starting directly with the type. Do not include any introductory phrases like "Here is the commit message:".
 """
 
-# --- Placeholder Configurations for Other Engines ---
-# You will need to configure models and prompt templates for Gemini and Claude
+# --- Configurations for Other Engines ---
 GEMINI_MODEL = "gemini-2.0-flash" # Example model name
-GEMINI_PROMPT_TEMPLATE = """
-Generate a Conventional Commit message based on the following git patch.
-Follow the format: <type>[optional scope]: <description>\n\n[optional body]\n\n[optional footer(s)]
-Common types: feat, fix, build, chore, ci, docs, style, refactor, perf, test.
-Include a footer like 'Closes #NNN' if the branch name contains 'ISSUE-NNN'.
-
-Git patch:
-```diff
-{}
-```
-Output only the commit message.
-"""
-
 
 CLAUDE_MODEL = "claude-3-5-haiku-20241022" # Example model name
-CLAUDE_PROMPT_TEMPLATE = """
-Please provide a Conventional Commit message for the following git patch.
-The message should adhere to the format: <type>[optional scope]: <description>\n\n[optional body]\n\n[optional footer(s)].
-Standard types include: feat, fix, build, chore, ci, docs, style, refactor, perf, test.
-If the branch name includes 'ISSUE-NNN', add a footer like 'Closes #NNN'.
-
-Here is the git patch:
-```diff
-{}
-```
-Generate only the commit message content.
-"""
 
 # Ollama Configuration
 OLLAMA_DEFAULT_HOST = "localhost"
 OLLAMA_DEFAULT_PORT = 11434
-OLLAMA_DEFAULT_MODEL = "llama3.2" # You might want to make this configurable too
-OLLAMA_PROMPT_TEMPLATE = """
-Generate a Conventional Commit message based on the following git patch.
-Follow the format: <type>[optional scope]: <description>\n\n[optional body]\n\n[optional footer(s)]
-Common types: feat, fix, build, chore, ci, docs, style, refactor, perf, test.
-Include a footer like 'Closes #NNN' if the branch name contains 'ISSUE-NNN'.
-
-Git patch:
-```diff
-{}
-```
-Output only the commit message.
-"""
+OLLAMA_DEFAULT_MODEL = "codellama" # might want to make this configurable too
 # --- End Configuration ---
 
 def run_git_command(command):
@@ -197,7 +157,7 @@ def get_openai_commit_message(patch):
 
     try:
         client = OpenAI(api_key=api_key)
-        full_prompt = OPENAI_PROMPT_TEMPLATE.format(patch)
+        full_prompt = PROMPT_TEMPLATE.format(patch)
 
         print(f"Requesting commit message from OpenAI ({OPENAI_MODEL})...")
         response = client.chat.completions.create(
@@ -242,7 +202,7 @@ def get_gemini_commit_message(patch):
         # Example using google-generativeai:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel(GEMINI_MODEL)
-        full_prompt = GEMINI_PROMPT_TEMPLATE.format(patch)
+        full_prompt = PROMPT_TEMPLATE.format(patch)
         response = model.generate_content(full_prompt)
         message = response.text.strip()
         return message
@@ -266,7 +226,7 @@ def get_claude_commit_message(patch):
         print(f"Requesting commit message from Claude ({CLAUDE_MODEL})...")
         # Example using anthropic:
         client = Anthropic(api_key=api_key)
-        full_prompt = CLAUDE_PROMPT_TEMPLATE.format(patch) # Using Claude's specific template
+        full_prompt = PROMPT_TEMPLATE.format(patch) # Using Claude's specific template
         message = client.messages.create(
             model=CLAUDE_MODEL,
             max_tokens=2000, # Increased max tokens slightly
@@ -287,8 +247,8 @@ def get_ollama_commit_message(patch, host, port):
         print("Ollama engine is not available (requires 'requests' library).")
         return None
 
-    url = f"http://{host}:{port}/api/generate"
-    full_prompt = OLLAMA_PROMPT_TEMPLATE.format(patch)
+    url = f"https://{host}:{port}/api/generate"
+    full_prompt = PROMPT_TEMPLATE.format(patch)
 
     data = {
         "model": OLLAMA_DEFAULT_MODEL,
@@ -371,7 +331,55 @@ def main():
         default=OLLAMA_DEFAULT_PORT,
         help=f"Specify the Ollama server port (default: {OLLAMA_DEFAULT_PORT})"
     )
+    parser.add_argument(
+        '-p', '--patch',
+        type=str,
+        help="Read the git patch from a specified file instead of the current Git repository."
+    )
     args = parser.parse_args()
+
+    patch = None
+    is_patch_provided_from_file = False
+
+    if args.patch:
+        # Read patch from file
+        patch_file_path = Path(args.patch)
+        if not patch_file_path.is_file():
+            print(f"Error: Patch file not found at '{args.patch}'")
+            sys.exit(1)
+        try:
+            patch = patch_file_path.read_text(encoding='utf-8')
+            is_patch_provided_from_file = True
+            print(f"Successfully read patch from file: {args.patch}")
+        except IOError as e:
+            print(f"Error reading patch file '{args.patch}': {e}")
+            sys.exit(1)
+        except Exception as e:
+            print(f"An unexpected error occurred reading patch file: {e}")
+            sys.exit(1)
+    else:
+        # Get patch from git diff --cached
+        print("Checking Git repository...")
+        if not is_git_repository():
+            print("Error: This directory does not appear to be a Git repository.")
+            sys.exit(1)
+        print("OK.")
+
+        print("Retrieving staged changes (git diff --cached)...")
+        patch = get_staged_diff()
+
+        if patch is None:
+            sys.exit(1)
+
+    if not patch:
+        if is_patch_provided_from_file:
+             print("The provided patch file is empty.")
+        else:
+            print("No changes staged for commit (did you forget to 'git add'?).")
+            print("Nothing to commit.")
+        sys.exit(0)
+    print("OK. Found patch content.")
+
 
     # Split the comma-separated input into a list of engines
     requested_engines = [e.strip().lower() for e in args.ai_engine.split(',')]
@@ -381,7 +389,7 @@ def main():
         'openai': OPENAI_AVAILABLE,
         'gemini': GEMINI_AVAILABLE,
         'claude': CLAUDE_AVAILABLE,
-        'ollama': OLLAMA_AVAILABLE # Added Ollama
+        'ollama': OLLAMA_AVAILABLE
     }
 
     engines_to_call = []
@@ -403,29 +411,12 @@ def main():
              else:
                   print(f"Warning: Default engine '{engine}' is not available. Skipping.")
 
+
     # Final check if any engines can be called
     if not engines_to_call:
          print("Error: No AI engines are available. Please install at least one library (openai, google-generativeai, anthropic, or requests).")
          sys.exit(1)
 
-
-    print("Checking Git repository...")
-    if not is_git_repository():
-        print("Error: This directory does not appear to be a Git repository.")
-        sys.exit(1)
-    print("OK.")
-
-    print("Retrieving staged changes (git diff --cached)...")
-    patch = get_staged_diff()
-
-    if patch is None:
-        sys.exit(1)
-
-    if not patch:
-        print("No changes staged for commit (did you forget to 'git add'?).")
-        print("Nothing to commit.")
-        sys.exit(0)
-    print("OK. Found staged changes.")
 
     # Dictionary to store messages from different engines {engine_name: message}
     generated_messages = {}
@@ -488,10 +479,18 @@ def main():
     selected_engine, commit_message_to_use = message_options[selected_message_index]
 
     # Ask the user for confirmation (y/n/s) for the selected message
+    # Modify prompt and valid options based on whether patch was from a file
+    valid_confirms = ['n', 's']
+    confirm_prompt = f"Use the selected message from {selected_engine.capitalize()}? (n/s[ave]): "
+    if not is_patch_provided_from_file:
+        valid_confirms.append('y')
+        confirm_prompt = f"Use the selected message from {selected_engine.capitalize()}? (y/n/s[ave]): "
+
+
     while True:
-        confirm = input(f"Use the selected message from {selected_engine.capitalize()}? (y/n/s[ave]): ").lower().strip()
-        if confirm == 'y':
-            # Proceed with commit using the selected message
+        confirm = input(confirm_prompt).lower().strip()
+        if confirm == 'y' and 'y' in valid_confirms:
+            # Proceed with commit using the selected message (only if patch was NOT from file)
             break
         elif confirm == 'n':
             # Cancel commit
@@ -505,21 +504,31 @@ def main():
                 print("Exiting despite save error.")
             sys.exit(0)
         else:
-            print("Invalid input. Please enter 'y' (yes), 'n' (no), or 's' (save).")
+            # Handle invalid input
+            print(f"Invalid input. Please enter one of: {'/'.join(valid_confirms)}.")
 
-    # Execute the commit (only reached if user entered 'y')
-    print("\nExecuting git commit...")
-    commit_result = run_git_command(['git', 'commit', '-m', commit_message_to_use])
+    # Execute the commit (only reached if user entered 'y' and patch was NOT from file)
+    if not is_patch_provided_from_file and confirm == 'y':
+        print("\nExecuting git commit...")
+        commit_result = run_git_command(['git', 'commit', '-m', commit_message_to_use])
 
-    if commit_result is not None:
-        print("\nCommit successful!")
-        print("-" * 10 + " Git Output " + "-" * 10)
-        print(commit_result)
-        print("-" * (20 + len(" Git Output ")))
+        if commit_result is not None:
+            print("\nCommit successful!")
+            print("-" * 10 + " Git Output " + "-" * 10)
+            print(commit_result)
+            print("-" * (20 + len(" Git Output ")))
+        else:
+            print("\nError during commit execution.")
+            print("You can try copying the suggested message and running 'git commit' manually.")
+            sys.exit(1)
+    elif is_patch_provided_from_file and confirm == 'y':
+         # This case should not be reachable due to prompt logic, but as a safeguard:
+         print("Commit option is not available when providing a patch from a file. Exiting.")
+         sys.exit(0)
     else:
-        print("\nError during commit execution.")
-        print("You can try copying the suggested message and running 'git commit' manually.")
-        sys.exit(1)
+         # This case is for 'n' or 's' confirms, which exit earlier.
+         pass # Should not be reached
+
 
 if __name__ == "__main__":
     main()
