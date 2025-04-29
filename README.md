@@ -26,8 +26,8 @@ It saves you time, improves commit quality, and maintains consistency across you
 
 First, clone the repository:  
 ```bash
-git clone https://github.com/your-username/aicommit.git
-cd aicommit
+git clone https://github.com/alienpenguin/aicommit.py.git
+cd aicommit.py
 ```
 
 Make the script executable (optional):  
