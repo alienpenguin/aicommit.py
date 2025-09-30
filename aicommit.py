@@ -76,6 +76,27 @@ Here is the git patch:
 Generate ONLY the commit message itself, starting directly with the type. Do not include any introductory phrases like "Here is the commit message:".
 """
 
+PROMPT_TEMPLATE_D = """
+You are a skilled developer specializing in writing excellent code patch descriptions, giving insights about the changed code, focusing on new features and code refactored, try to describe as much as you can from what you can see in the patch code
+
+Analyze the following git patch and generate an appropriate descriptions of what this patch is about.
+
+The format MUST be:
+<type>[optional scope]: <description>
+
+[optional body explaining the 'what' and 'why' vs. 'how']
+
+[optional footer(s) for BREAKING CHANGE or referencing issues (this MUST be present ONLY if the branch name contains a number like /story/ISSUE-456/fixing-code), e.g., Closes #123]
+
+Common types include: feat, fix, build, chore, ci, docs, style, refactor, perf, test.
+
+Here is the git patch:
+```diff
+{}
+```
+Generate ONLY the description itself, starting directly with the description. Do not include any introductory phrases like "Here is the commit description:".
+"""
+
 # --- Configurations for Other Engines ---
 GEMINI_MODEL = "gemini-2.0-flash" # Example model name
 
@@ -145,7 +166,7 @@ def get_api_key(engine):
     print(f"place your key in the file: {fallback_path}")
     return None
 
-def get_openai_commit_message(patch):
+def get_openai_commit_message(patch, extended):
     """Calls the OpenAI API to generate the commit message."""
     if not OPENAI_AVAILABLE:
         print("OpenAI engine is not available.")
@@ -157,7 +178,14 @@ def get_openai_commit_message(patch):
 
     try:
         client = OpenAI(api_key=api_key)
-        full_prompt = PROMPT_TEMPLATE.format(patch)
+        if extended:
+            full_prompt = PROMPT_TEMPLATE_D.format(patch)
+            temp=0.3
+            maxTok=10000
+        else:
+            full_prompt = PROMPT_TEMPLATE.format(patch)
+            temp=0.5
+            maxTok=200
 
         print(f"Requesting commit message from OpenAI ({OPENAI_MODEL})...")
         response = client.chat.completions.create(
@@ -166,8 +194,8 @@ def get_openai_commit_message(patch):
                 {"role": "system", "content": "You generate Conventional Commit messages based on git diffs."},
                 {"role": "user", "content": full_prompt}
             ],
-            temperature=0.5,
-            max_tokens=200
+            temperature=temp,
+            max_tokens=maxTok
         )
 
         if response.choices and response.choices[0].message:
@@ -336,6 +364,11 @@ def main():
         type=str,
         help="Read the git patch from a specified file instead of the current Git repository."
     )
+    parser.add_argument(
+        '-d', '--description',
+        action='store_true',
+        help="Try to give a more detailed description of the commit, not just a brief message."
+    )
     args = parser.parse_args()
 
     patch = None
@@ -435,7 +468,13 @@ def main():
             # For other engines, check for API key
             if get_api_key(engine): # get_api_key prints error if not found
                 if engine == 'openai':
-                    message = get_openai_commit_message(patch)
+                    if args.description:
+                        extended = True
+                        print("Generating commit description...")
+                    else:
+                        print("Generating commit simple message...")
+                        extended = False
+                    message = get_openai_commit_message(patch, extended)
                 elif engine == 'gemini':
                     message = get_gemini_commit_message(patch)
                 elif engine == 'claude':
